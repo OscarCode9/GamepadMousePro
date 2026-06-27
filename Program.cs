@@ -91,6 +91,12 @@ public class GamepadMouseForm : Form {
     public static extern bool WriteFile(IntPtr hFile, byte[] lpBuffer, uint nNumberOfBytesToWrite, out uint lpNumberOfBytesWritten, IntPtr lpOverlapped);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool ReadFile(IntPtr hFile, byte[] lpBuffer, uint nNumberOfBytesToRead, out uint lpNumberOfBytesRead, IntPtr lpOverlapped);
+
+    [DllImport("hid.dll", SetLastError = true)]
+    public static extern bool HidD_SetNumInputBuffers(IntPtr HidDeviceObject, uint NumberBuffers);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool CloseHandle(IntPtr hObject);
 
     // Win32 Constants
@@ -131,6 +137,8 @@ public class GamepadMouseForm : Form {
 
     private static Thread _pollThread;
     private static bool _running = false;
+    private static Thread _batteryThread;
+    private static bool _runningBattery = false;
 
     // UI Elements
     private Panel headerPanel;
@@ -138,6 +146,7 @@ public class GamepadMouseForm : Form {
     private Button closeButton;
     private Button toggleButton;
     private Label statusLabel;
+    private Label batteryLabel;
     private TrackBar speedTrackBar;
     private Label speedValLabel;
     private TrackBar scrollTrackBar;
@@ -147,7 +156,7 @@ public class GamepadMouseForm : Form {
 
     public GamepadMouseForm() {
         this.Width = 580;
-        this.Height = 385;
+        this.Height = 410;
         this.FormBorderStyle = FormBorderStyle.None;
         this.BackColor = Color.FromArgb(30, 30, 46); // Catppuccin Mocha Dark
         this.StartPosition = FormStartPosition.CenterScreen;
@@ -189,7 +198,7 @@ public class GamepadMouseForm : Form {
 
         // Status Card
         Panel statusCard = new Panel();
-        statusCard.Size = new Size(260, 60);
+        statusCard.Size = new Size(260, 80);
         statusCard.Location = new Point(20, 75);
         statusCard.BackColor = Color.FromArgb(24, 24, 37);
         
@@ -197,9 +206,17 @@ public class GamepadMouseForm : Form {
         statusLabel.Text = "Control: Desconectado";
         statusLabel.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
         statusLabel.ForeColor = Color.FromArgb(243, 139, 168);
-        statusLabel.Location = new Point(10, 20);
+        statusLabel.Location = new Point(10, 15);
         statusLabel.AutoSize = true;
         statusCard.Controls.Add(statusLabel);
+
+        batteryLabel = new Label();
+        batteryLabel.Text = "Batería: --";
+        batteryLabel.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+        batteryLabel.ForeColor = Color.FromArgb(166, 173, 200);
+        batteryLabel.Location = new Point(10, 45);
+        batteryLabel.AutoSize = true;
+        statusCard.Controls.Add(batteryLabel);
 
         toggleButton = new Button();
         toggleButton.Text = "Conectar";
@@ -209,7 +226,7 @@ public class GamepadMouseForm : Form {
         toggleButton.FlatStyle = FlatStyle.Flat;
         toggleButton.FlatAppearance.BorderSize = 0;
         toggleButton.Size = new Size(95, 34);
-        toggleButton.Location = new Point(155, 13);
+        toggleButton.Location = new Point(155, 23);
         toggleButton.Cursor = Cursors.Hand;
         toggleButton.Click += ToggleButton_Click;
         statusCard.Controls.Add(toggleButton);
@@ -221,7 +238,7 @@ public class GamepadMouseForm : Form {
         speedLabel.Text = "Velocidad del Cursor:";
         speedLabel.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
         speedLabel.ForeColor = Color.FromArgb(205, 214, 244);
-        speedLabel.Location = new Point(20, 155);
+        speedLabel.Location = new Point(20, 175);
         speedLabel.AutoSize = true;
         this.Controls.Add(speedLabel);
 
@@ -230,7 +247,7 @@ public class GamepadMouseForm : Form {
         speedTrackBar.Maximum = 60;
         speedTrackBar.Value = (int)MaxSpeedLeft;
         speedTrackBar.Size = new Size(210, 45);
-        speedTrackBar.Location = new Point(20, 180);
+        speedTrackBar.Location = new Point(20, 200);
         speedTrackBar.TickStyle = TickStyle.None;
         speedTrackBar.Scroll += SpeedTrackBar_Scroll;
         this.Controls.Add(speedTrackBar);
@@ -239,7 +256,7 @@ public class GamepadMouseForm : Form {
         speedValLabel.Text = speedTrackBar.Value.ToString();
         speedValLabel.Font = new Font("Segoe UI", 10, FontStyle.Bold);
         speedValLabel.ForeColor = Color.FromArgb(137, 180, 250);
-        speedValLabel.Location = new Point(240, 180);
+        speedValLabel.Location = new Point(240, 200);
         speedValLabel.AutoSize = true;
         this.Controls.Add(speedValLabel);
 
@@ -248,7 +265,7 @@ public class GamepadMouseForm : Form {
         scrollLabel.Text = "Velocidad de Scroll:";
         scrollLabel.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
         scrollLabel.ForeColor = Color.FromArgb(205, 214, 244);
-        scrollLabel.Location = new Point(20, 235);
+        scrollLabel.Location = new Point(20, 255);
         scrollLabel.AutoSize = true;
         this.Controls.Add(scrollLabel);
 
@@ -257,7 +274,7 @@ public class GamepadMouseForm : Form {
         scrollTrackBar.Maximum = 80;
         scrollTrackBar.Value = (int)ScrollSpeedScale;
         scrollTrackBar.Size = new Size(210, 45);
-        scrollTrackBar.Location = new Point(20, 260);
+        scrollTrackBar.Location = new Point(20, 280);
         scrollTrackBar.TickStyle = TickStyle.None;
         scrollTrackBar.Scroll += ScrollTrackBar_Scroll;
         this.Controls.Add(scrollTrackBar);
@@ -266,7 +283,7 @@ public class GamepadMouseForm : Form {
         scrollValLabel.Text = scrollTrackBar.Value.ToString();
         scrollValLabel.Font = new Font("Segoe UI", 10, FontStyle.Bold);
         scrollValLabel.ForeColor = Color.FromArgb(137, 180, 250);
-        scrollValLabel.Location = new Point(240, 260);
+        scrollValLabel.Location = new Point(240, 280);
         scrollValLabel.AutoSize = true;
         this.Controls.Add(scrollValLabel);
 
@@ -299,7 +316,7 @@ public class GamepadMouseForm : Form {
         mappingGroup.Text = "Mapeo de Controles";
         mappingGroup.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
         mappingGroup.ForeColor = Color.FromArgb(137, 180, 250);
-        mappingGroup.Size = new Size(260, 180);
+        mappingGroup.Size = new Size(260, 205);
         mappingGroup.Location = new Point(300, 140);
         mappingGroup.FlatStyle = FlatStyle.Flat;
 
@@ -314,7 +331,7 @@ public class GamepadMouseForm : Form {
         mapListLabel.Font = new Font("Segoe UI Semibold", 8.8f, FontStyle.Regular);
         mapListLabel.ForeColor = Color.FromArgb(205, 214, 244);
         mapListLabel.Location = new Point(15, 25);
-        mapListLabel.Size = new Size(230, 145);
+        mapListLabel.Size = new Size(230, 170);
         mappingGroup.Controls.Add(mapListLabel);
         this.Controls.Add(mappingGroup);
 
@@ -330,7 +347,7 @@ public class GamepadMouseForm : Form {
         footerLabel.Font = new Font("Segoe UI", 8, FontStyle.Italic);
         footerLabel.ForeColor = Color.FromArgb(108, 112, 134);
         footerLabel.Size = new Size(this.Width, 20);
-        footerLabel.Location = new Point(0, 355);
+        footerLabel.Location = new Point(0, 380);
         footerLabel.TextAlign = ContentAlignment.MiddleCenter;
         this.Controls.Add(footerLabel);
 
@@ -338,6 +355,12 @@ public class GamepadMouseForm : Form {
         if (CheckControllerConnection()) {
             StartControllerMapping();
         }
+
+        // Start battery monitoring thread
+        _runningBattery = true;
+        _batteryThread = new Thread(BatteryLoop);
+        _batteryThread.IsBackground = true;
+        _batteryThread.Start();
     }
 
     private void HeaderPanel_MouseDown(object sender, MouseEventArgs e) {
@@ -453,6 +476,8 @@ public class GamepadMouseForm : Form {
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e) {
+        _running = false;
+        _runningBattery = false;
         StopControllerMapping();
         base.OnFormClosing(e);
     }
@@ -714,6 +739,115 @@ public class GamepadMouseForm : Form {
         }
         return ~crc;
     }
+
+    private void BatteryLoop() {
+        byte[] readBuf = new byte[64];
+        while (_runningBattery) {
+            IntPtr handle = IntPtr.Zero;
+            try {
+                Guid hidGuid;
+                HidD_GetHidGuid(out hidGuid);
+                IntPtr hDevInfo = SetupDiGetClassDevs(ref hidGuid, null, IntPtr.Zero, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+                if (hDevInfo != (IntPtr)(-1)) {
+                    SP_DEVICE_INTERFACE_DATA interfaceData = new SP_DEVICE_INTERFACE_DATA();
+                    interfaceData.cbSize = Marshal.SizeOf(interfaceData);
+                    uint index = 0;
+                    string path = null;
+
+                    while (SetupDiEnumDeviceInterfaces(hDevInfo, IntPtr.Zero, ref hidGuid, index++, ref interfaceData)) {
+                        uint requiredSize = 0;
+                        SetupDiGetDeviceInterfaceDetail(hDevInfo, ref interfaceData, IntPtr.Zero, 0, out requiredSize, IntPtr.Zero);
+                        if (requiredSize == 0) continue;
+
+                        IntPtr detailData = Marshal.AllocHGlobal((int)requiredSize);
+                        Marshal.WriteInt32(detailData, IntPtr.Size == 8 ? 8 : 6);
+
+                        if (SetupDiGetDeviceInterfaceDetail(hDevInfo, ref interfaceData, detailData, requiredSize, out requiredSize, IntPtr.Zero)) {
+                            IntPtr pathPtr = new IntPtr(detailData.ToInt64() + 4);
+                            string devPath = Marshal.PtrToStringAuto(pathPtr);
+                            
+                            // Open temp handle to check attributes
+                            IntPtr tempHandle = CreateFile(devPath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+                            if (tempHandle != (IntPtr)(-1)) {
+                                HIDD_ATTRIBUTES attrs = new HIDD_ATTRIBUTES();
+                                attrs.cbSize = Marshal.SizeOf(attrs);
+                                if (HidD_GetAttributes(tempHandle, ref attrs)) {
+                                    if (attrs.VendorID == 0x054C && (attrs.ProductID == 0x05C4 || attrs.ProductID == 0x09CC)) {
+                                        path = devPath;
+                                        CloseHandle(tempHandle);
+                                        Marshal.FreeHGlobal(detailData);
+                                        break;
+                                    }
+                                }
+                                CloseHandle(tempHandle);
+                            }
+                        }
+                        Marshal.FreeHGlobal(detailData);
+                    }
+                    SetupDiDestroyDeviceInfoList(hDevInfo);
+
+                    if (path != null) {
+                        handle = CreateFile(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+                        if (handle != (IntPtr)(-1)) {
+                            HidD_SetNumInputBuffers(handle, 2);
+                            while (_runningBattery) {
+                                uint bytesRead = 0;
+                                bool success = ReadFile(handle, readBuf, (uint)readBuf.Length, out bytesRead, IntPtr.Zero);
+                                if (success && bytesRead >= 31) {
+                                    int rawBattery = readBuf[30] & 0x0F;
+                                    bool isCharging = (readBuf[30] & 0x10) != 0;
+                                    int percent = Math.Min(rawBattery * 10, 100);
+
+                                    string statusText;
+                                    Color statusColor;
+                                    if (isCharging) {
+                                        statusText = string.Format("Batería: {0}% (Cargando ⚡)", percent);
+                                        statusColor = Color.FromArgb(249, 226, 175); // Peach/Yellow Catppuccin
+                                    } else {
+                                        statusText = string.Format("Batería: {0}%", percent);
+                                        if (percent <= 20) {
+                                            statusColor = Color.FromArgb(243, 139, 168); // Red Catppuccin
+                                        } else if (percent <= 50) {
+                                            statusColor = Color.FromArgb(250, 179, 135); // Peach Catppuccin
+                                        } else {
+                                            statusColor = Color.FromArgb(166, 227, 161); // Green Catppuccin
+                                        }
+                                    }
+
+                                    if (this.IsHandleCreated && !this.IsDisposed) {
+                                        this.BeginInvoke((MethodInvoker)delegate {
+                                            batteryLabel.Text = statusText;
+                                            batteryLabel.ForeColor = statusColor;
+                                        });
+                                    }
+                                } else {
+                                    break;
+                                }
+                                Thread.Sleep(500); // Poll battery status twice per second
+                            }
+                            CloseHandle(handle);
+                            handle = IntPtr.Zero;
+                        }
+                    }
+                }
+            } catch {
+                if (handle != IntPtr.Zero && handle != (IntPtr)(-1)) {
+                    CloseHandle(handle);
+                }
+            }
+
+            if (this.IsHandleCreated && !this.IsDisposed) {
+                this.BeginInvoke((MethodInvoker)delegate {
+                    batteryLabel.Text = "Batería: --";
+                    batteryLabel.ForeColor = Color.FromArgb(166, 173, 200); // Overlay0 Catppuccin
+                });
+            }
+
+            Thread.Sleep(2000); // Wait 2s before retrying connection
+        }
+    }
+
+
 
     [STAThread]
     public static void Main() {
