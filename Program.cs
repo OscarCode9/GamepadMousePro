@@ -67,7 +67,7 @@ public class GamepadMouseForm : Form {
     public static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
 
     [DllImport("hid.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    public static extern void HidD_GetGuid(out Guid hidGuid);
+    public static extern void HidD_GetHidGuid(out Guid hidGuid);
 
     [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
     public static extern IntPtr SetupDiGetClassDevs(ref Guid classGuid, string enumerator, IntPtr hwndParent, uint flags);
@@ -614,7 +614,7 @@ public class GamepadMouseForm : Form {
     private static void SetDS4Led(byte r, byte g, byte b) {
         try {
             Guid hidGuid;
-            HidD_GetGuid(out hidGuid);
+            HidD_GetHidGuid(out hidGuid);
             IntPtr hDevInfo = SetupDiGetClassDevs(ref hidGuid, null, IntPtr.Zero, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
             if (hDevInfo == (IntPtr)(-1)) return;
 
@@ -661,12 +661,12 @@ public class GamepadMouseForm : Form {
         // USB Output Report (ID 0x05)
         byte[] usbBuf = new byte[32];
         usbBuf[0] = 0x05;
-        usbBuf[1] = 0xFF; // Update flag
-        usbBuf[4] = r;
-        usbBuf[5] = g;
-        usbBuf[6] = b;
-        usbBuf[7] = 0xFF; // Flash On Time (255 = solid)
-        usbBuf[8] = 0x00; // Flash Off Time (0 = solid)
+        usbBuf[1] = 0x06; // Enable LED and LED blink/flash
+        usbBuf[6] = r;
+        usbBuf[7] = g;
+        usbBuf[8] = b;
+        usbBuf[9] = 0x00;
+        usbBuf[10] = 0x00;
 
         uint written = 0;
         WriteFile(handle, usbBuf, (uint)usbBuf.Length, out written, IntPtr.Zero);
@@ -675,12 +675,14 @@ public class GamepadMouseForm : Form {
         byte[] btBuf = new byte[78];
         btBuf[0] = 0x11;
         btBuf[1] = 0xC0; // Flag
-        btBuf[3] = 0x0F; // Enable LED and rumble
-        btBuf[6] = r;
-        btBuf[7] = g;
-        btBuf[8] = b;
-        btBuf[9] = 0xFF;  // Solid light
-        btBuf[10] = 0x00; // No flash
+        btBuf[2] = 0x20; // Required constant
+        btBuf[3] = 0x06; // Enable LED and LED blink/flash
+        btBuf[4] = 0x04; // Required constant
+        btBuf[8] = r;
+        btBuf[9] = g;
+        btBuf[10] = b;
+        btBuf[11] = 0x00;
+        btBuf[12] = 0x00;
 
         // Calculate CRC32 for Bluetooth report
         byte[] crcCalcBuf = new byte[75];
