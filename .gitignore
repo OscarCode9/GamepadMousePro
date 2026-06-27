@@ -1,0 +1,9 @@
+# Archivos binarios compilados
+*.exe
+*.pdb
+
+# Logs y caches de desarrollo
+*.log
+.vs/
+bin/
+obj/
